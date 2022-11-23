@@ -1,11 +1,12 @@
-package main
+package tasker
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
+// TaskFunc is a func that can be scheduled in a goroutine.
+// It should return a generic type T and an error.
 type TaskFunc[T any] func(context.Context) (T, error)
 
 type response[T any] struct {
@@ -13,6 +14,9 @@ type response[T any] struct {
 	err   error
 }
 
+// Task will hold the response of the underlying TaskFunc.
+// It will keep track whenever either the response of the TaskFunc
+// is fullfilled or its context is canceled or timed out.
 type Task[T any] struct {
 	respch       chan response[T]
 	ctx          context.Context
@@ -20,6 +24,8 @@ type Task[T any] struct {
 	parentCancel context.CancelFunc
 }
 
+// Await will block until either the TaskFunc returned a response or
+// its context is canceled or timed out.
 func (t *Task[T]) Await() (T, error) {
 	select {
 	case <-t.ctx.Done():
@@ -30,20 +36,21 @@ func (t *Task[T]) Await() (T, error) {
 	}
 }
 
+// Cancel will cancel all underlying context routines. Use Cancel
+// for canceling a TaskFunc or to prevent context leakage.
 func (t *Task[T]) Cancel() {
 	t.cancel()
 	t.parentCancel()
 }
 
-type TaskOpts struct {
-	Timeout time.Duration
-}
-
+// SpawnWithTimeout will execute a TaskFunc in a goroutine that will be automatically
+// canceled after the given time.Duration.
 func SpawnWithTimeout[T any](t TaskFunc[T], d time.Duration) *Task[T] {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	return spawn(ctx, cancel, t)
 }
 
+// Spawn executes a TaskFunc in another goroutine.
 func Spawn[T any](t TaskFunc[T]) *Task[T] {
 	ctx := context.Background()
 	return spawn(ctx, func() {}, t)
@@ -67,31 +74,5 @@ func spawn[T any](ctx context.Context, parentCancel context.CancelFunc, t TaskFu
 		ctx:          ctx,
 		cancel:       cancel,
 		parentCancel: parentCancel,
-	}
-}
-
-func main() {
-	start := time.Now()
-	userID := 69
-	taskUserLikes := SpawnWithTimeout(fetchUserLikes(userID), time.Millisecond*600)
-
-	likes, err := taskUserLikes.Await()
-	if err != nil {
-		fmt.Println("did not fetched user likes cause:", err)
-	}
-
-	fmt.Println("likes result: ", likes)
-	fmt.Println("took: ", time.Since(start))
-}
-
-type User struct {
-	Name string
-}
-
-func fetchUserLikes(userID int) TaskFunc[int] {
-	return func(ctx context.Context) (int, error) {
-		time.Sleep(time.Millisecond * 400)
-
-		return 666, nil
 	}
 }
